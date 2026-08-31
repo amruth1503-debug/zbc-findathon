@@ -1,10 +1,44 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from database import SessionLocal, init_db, ImageRecord
 import shutil
 import os
-from backend.backend.utils import calculate_phash, are_images_near_duplicates
+from utils import calculate_phash, are_images_near_duplicates
 
 app = FastAPI()
+@app.on_event("startup")
+def startup_event():
+    init_db()
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.post("/upload")
+async def upload_files(files: list[UploadFile] = File(...), db: Session = Depends(get_db)):
+    processed_files = []
+
+    for file in files:
+        file_bytes = await file.read()
+        file_hash = str(hash(file_bytes)) # Or use your existing hash function from utils.py
+
+        # Save the record into your SQLite database
+        db_image = ImageRecord(filename=file.filename, file_hash=file_hash)
+        db.add(db_image)
+        db.commit()
+        db.refresh(db_image)
+
+        processed_files.append(file.filename)
+
+    # Keep your existing return structure for duplicate detection
+    return {
+        "duplicate_groups": [
+            processed_files
+        ]
+    }
 
 # Enable CORS so your React frontend can communicate with FastAPI
 app.add_middleware(
